@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VTracer WASM Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; padding: 20px; background: #f5f5f5; }
+        h1 { margin-bottom: 20px; }
+        .controls { margin-bottom: 20px; }
+        .preview { display: flex; gap: 20px; flex-wrap: wrap; }
+        .panel { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .panel h3 { margin-bottom: 10px; }
+        canvas, svg { max-width: 100%; border: 1px solid #ddd; }
+        #output { width: 512px; height: 512px; }
+        #status { margin-top: 10px; color: #666; }
+        input[type="file"] { margin-right: 10px; }
+        label { margin-right: 15px; }
+        .param-group { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 10px; align-items: center; }
+        .param-item { display: flex; align-items: center; gap: 6px; }
+        .param-item label { margin-right: 0; font-size: 13px; white-space: nowrap; }
+        .param-item input[type="range"] { width: 120px; }
+        .param-item .value { font-size: 13px; color: #333; min-width: 20px; }
+    </style>
+</head>
+<body>
+    <h1>VTracer WASM Demo</h1>
+
+    <div class="controls">
+        <input type="file" id="fileInput" accept="image/*">
+        <button id="convertBtn" disabled>Convert to SVG</button>
+        <div style="margin-top: 10px;">
+            <label><input type="radio" name="mode" value="polygon" checked> Polygon</label>
+            <label><input type="radio" name="mode" value="spline"> Spline</label>
+            <label><input type="radio" name="mode" value="none"> None</label>
+            <label style="margin-left: 20px;"><input type="radio" name="hierarchical" value="stacked" checked> Stacked</label>
+            <label><input type="radio" name="hierarchical" value="cutout"> Cutout</label>
+        </div>
+        <div class="param-group">
+            <div class="param-item">
+                <label for="colorPrecision">Color Precision:</label>
+                <input type="range" id="colorPrecision" min="1" max="10" value="2">
+                <span class="value" id="colorPrecisionVal">2</span>
+            </div>
+            <div class="param-item">
+                <label for="filterSpeckle">Filter Speckle:</label>
+                <input type="range" id="filterSpeckle" min="1" max="50" value="1">
+                <span class="value" id="filterSpeckleVal">1</span>
+            </div>
+            <div class="param-item">
+                <label for="cornerThreshold">Corner:</label>
+                <input type="range" id="cornerThreshold" min="1" max="15" value="6" step="0.5">
+                <span class="value" id="cornerThresholdVal">6</span>
+            </div>
+            <div class="param-item">
+                <label for="lengthThreshold">Length:</label>
+                <input type="range" id="lengthThreshold" min="1" max="10" value="4" step="0.5">
+                <span class="value" id="lengthThresholdVal">4</span>
+            </div>
+            <div class="param-item">
+                <label for="spliceThreshold">Splice:</label>
+                <input type="range" id="spliceThreshold" min="10" max="90" value="45">
+                <span class="value" id="spliceThresholdVal">45</span>
+            </div>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <div class="preview">
+        <div class="panel">
+            <h3>Input</h3>
+            <canvas id="canvas" width="512" height="512"></canvas>
+        </div>
+        <div class="panel">
+            <h3>Output</h3>
+            <svg id="output" xmlns="http://www.w3.org/2000/svg" width="512" height="512"></svg>
+        </div>
+    </div>
+
+    <canvas id="hiddenCanvas" style="display:none"></canvas>
+
+    <script type="module">
+        import init, { ColorImageConverter } from './vtracer_webapp.js';
+
+        const sliders = {
+            colorPrecision: document.getElementById('colorPrecision'),
+            filterSpeckle: document.getElementById('filterSpeckle'),
+            cornerThreshold: document.getElementById('cornerThreshold'),
+            lengthThreshold: document.getElementById('lengthThreshold'),
+            spliceThreshold: document.getElementById('spliceThreshold'),
+        };
+        const vals = {
+            colorPrecision: document.getElementById('colorPrecisionVal'),
+            filterSpeckle: document.getElementById('filterSpeckleVal'),
+            cornerThreshold: document.getElementById('cornerThresholdVal'),
+            lengthThreshold: document.getElementById('lengthThresholdVal'),
+            spliceThreshold: document.getElementById('spliceThresholdVal'),
+        };
+
+        Object.keys(sliders).forEach(key => {
+            sliders[key].addEventListener('input', () => {
+                vals[key].textContent = sliders[key].value;
+            });
+        });
+
+        const fileInput = document.getElementById('fileInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const canvas = document.getElementById('canvas');
+        const hiddenCanvas = document.getElementById('hiddenCanvas');
+        const outputDiv = document.getElementById('output');
+        const statusDiv = document.getElementById('status');
+        const ctx = canvas.getContext('2d');
+
+        let loaded = false;
+
+        async function start() {
+            await init();
+            loaded = true;
+            statusDiv.textContent = 'WASM loaded. Select an image to convert.';
+        }
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const img = new Image();
+            img.onload = () => {
+                const size = Math.min(img.width, img.height, 512);
+                canvas.width = size;
+                canvas.height = size;
+                hiddenCanvas.width = size;
+                hiddenCanvas.height = size;
+
+                const hctx = hiddenCanvas.getContext('2d');
+                hctx.drawImage(img, 0, 0, size, size);
+                ctx.drawImage(img, 0, 0, size, size);
+
+                outputDiv.innerHTML = '';
+                convertBtn.disabled = false;
+                statusDiv.textContent = 'Image loaded. Click Convert.';
+            };
+            img.src = URL.createObjectURL(file);
+        });
+
+        convertBtn.addEventListener('click', () => {
+            if (!loaded) return;
+
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const hierarchical = document.querySelector('input[name="hierarchical"]:checked').value;
+            const params = JSON.stringify({
+                canvas_id: "hiddenCanvas",
+                svg_id: "output",
+                mode: mode,
+                hierarchical: hierarchical,
+                corner_threshold: parseFloat(sliders.cornerThreshold.value),
+                length_threshold: parseFloat(sliders.lengthThreshold.value),
+                max_iterations: 10,
+                splice_threshold: parseFloat(sliders.spliceThreshold.value),
+                filter_speckle: parseInt(sliders.filterSpeckle.value),
+                color_precision: parseInt(sliders.colorPrecision.value),
+                layer_difference: 0,
+                path_precision: 3,
+            });
+
+            outputDiv.innerHTML = '';
+            statusDiv.textContent = 'Converting...';
+
+            const converter = ColorImageConverter.new_with_string(params);
+            converter.init();
+
+            function tick() {
+                const done = converter.tick();
+                if (!done) {
+                    const progress = converter.progress();
+                    statusDiv.textContent = `Converting... ${progress}%`;
+                    requestAnimationFrame(tick);
+                } else {
+                    statusDiv.textContent = 'Done!';
+                    converter.free();
+                }
+            }
+            requestAnimationFrame(tick);
+        });
+
+        start();
+    </script>
+</body>
+</html>

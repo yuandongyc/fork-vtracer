@@ -25,13 +25,14 @@ jobs:
         run: cargo install wasm-pack
 
       - name: Build WASM
-        run: wasm-pack build --target web --release --manifest-path webapp/Cargo.toml
+        run: wasm-pack build --target web --release
+        working-directory: webapp
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: wasm-webapp
-          path: webapp/pkg/
+          path: webapp/pkg
 
   deploy-pages:
     runs-on: ubuntu-latest
